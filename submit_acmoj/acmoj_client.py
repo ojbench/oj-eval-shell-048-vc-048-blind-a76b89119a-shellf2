@@ -30,7 +30,7 @@ from datetime import datetime
 
 class ACMOJClient:
     def __init__(self, access_token: str):
-        self.api_base = "https://acm.sjtu.edu.cn/OnlineJudge/api/v1"
+        self.api_base = os.environ.get("OJ_API_BASE", "https://acm.sjtu.edu.cn/OnlineJudge/api/v1")
         self.headers = {
             "Authorization": f"Bearer {access_token}",
             "Content-Type": "application/x-www-form-urlencoded",
@@ -91,6 +91,13 @@ class ACMOJClient:
 
         return result
 
+    def submit_code(self, problem_id: int, language: str, code_text: str) -> Optional[Dict]:
+        data = {"language": language, "code": code_text}
+        result = self._make_request("POST", f"/problem/{problem_id}/submit", data=data)
+        if result and 'id' in result:
+            self._save_submission_id(result['id'])
+        return result
+
     def get_submission_detail(self, submission_id: int) -> Optional[Dict]:
         return self._make_request("GET", f"/submission/{submission_id}")
 
@@ -148,7 +155,17 @@ def main():
         result = client.abort_submission(args.submission_id)
 
     if result:
-        print(json.dumps(result))
+        if os.environ.get("VERDICT_MODE") == "blind" and args.command == "status":
+            status = str(result.get("status", "")).lower()
+            if status in {"pending", "compiling", "judging", "waiting"}:
+                visible = {"status": "pending", "message": "Evaluation in progress. Please check again."}
+            elif status in {"accepted", "success"}:
+                visible = {"status": "accepted", "message": "Accepted."}
+            else:
+                visible = {"status": "failed", "message": "Failed, please try again."}
+            print(json.dumps(visible))
+        else:
+            print(json.dumps(result))
     else:
         # Exit with a non-zero status code to indicate failure to shell scripts
         exit(1)
